@@ -15,6 +15,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// WAL(Write Ahead Log)预写日志
 func (db *DB) writeJournal(batches []*Batch, seq uint64, sync bool) error {
 	wr, err := db.journal.Next()
 	if err != nil {
@@ -63,10 +64,17 @@ retry:
 	return
 }
 
+// 通过检查L0层文件数调节写入性能
+// 1、L0文件数超过slowdownTrigger，写入延时1毫米
+// 2、L1文件数超过pauseTrigger，则停止写入，直到压缩完成
+// 3、内存数据库有足够空间，直接返回
 func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 	delayed := false
+	// 压缩阀值
 	slowdownTrigger := db.s.o.GetWriteL0SlowdownTrigger()
+	// 暂停写入阀值
 	pauseTrigger := db.s.o.GetWriteL0PauseTrigger()
+
 	flush := func() (retry bool) {
 		mdb = db.getEffectiveMem()
 		if mdb == nil {
@@ -79,6 +87,8 @@ func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 				mdb = nil
 			}
 		}()
+
+		// L0 文件数
 		tLen := db.s.tLen(0)
 		mdbFree = mdb.Free()
 		switch {
@@ -114,9 +124,11 @@ func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 		}
 		return true
 	}
+
 	start := time.Now()
 	for flush() {
 	}
+
 	if delayed {
 		db.writeDelay += time.Since(start)
 		db.writeDelayN++
