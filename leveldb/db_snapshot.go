@@ -29,8 +29,10 @@ func (db *DB) acquireSnapshot() *snapshotElement {
 	db.snapsMu.Lock()
 	defer db.snapsMu.Unlock()
 
+	// 获取当前DB的最新sequence
 	seq := db.getSeq()
 
+	// 从db的snapsList中获取最新（head）快照
 	if e := db.snapsList.Back(); e != nil {
 		se := e.Value.(*snapshotElement)
 		if se.seq == seq {
@@ -41,6 +43,7 @@ func (db *DB) acquireSnapshot() *snapshotElement {
 		}
 	}
 	se := &snapshotElement{seq: seq, ref: 1}
+	// 添加到db的snapsList的头部
 	se.e = db.snapsList.PushBack(se)
 	return se
 }
@@ -52,6 +55,7 @@ func (db *DB) releaseSnapshot(se *snapshotElement) {
 
 	se.ref--
 	if se.ref == 0 {
+		// 删除元素O(1)
 		db.snapsList.Remove(se.e)
 		se.e = nil
 	} else if se.ref < 0 {
@@ -64,6 +68,7 @@ func (db *DB) minSeq() uint64 {
 	db.snapsMu.Lock()
 	defer db.snapsMu.Unlock()
 
+	// 获取最旧（tail）快照的sequence
 	if e := db.snapsList.Front(); e != nil {
 		return e.Value.(*snapshotElement).seq
 	}

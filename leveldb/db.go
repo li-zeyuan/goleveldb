@@ -31,7 +31,7 @@ import (
 // DB is a LevelDB database.
 type DB struct {
 	// Need 64-bit alignment.
-	seq uint64
+	seq uint64 // 序列号，每次写入+1
 
 	// Stats. Need 64-bit alignment.
 	cWriteDelay            int64 // The cumulative duration of write delays
@@ -59,7 +59,17 @@ type DB struct {
 	frozenSeq       uint64
 
 	// Snapshot.
-	snapsMu   sync.Mutex
+	snapsMu sync.Mutex
+	/*
+			    	root
+			    /          \
+			head <-> B <-> tail
+
+		为什么需要一个list来存储快照？
+		1、多版本并发控制（MVCC），需要保存多个快照。新的快照会被添加到list头部。
+		2、删除元素O(1)
+		3、获取head、tail元素O(1)
+	*/
 	snapsList *list.List
 
 	// Write.
@@ -931,6 +941,7 @@ func (db *DB) GetSnapshot() (*Snapshot, error) {
 // GetProperty returns value of the given property name.
 //
 // Property names:
+//
 //	leveldb.num-files-at-level{n}
 //		Returns the number of files at level 'n'.
 //	leveldb.stats
