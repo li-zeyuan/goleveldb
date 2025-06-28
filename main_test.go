@@ -16,7 +16,9 @@ func TestLevelDb(t *testing.T) {
 	defer db.Close()
 
 	key1 := []byte("key_1")
+	key2 := []byte("key_2")
 	value1 := []byte("val_1")
+	value2 := []byte("val_2")
 
 	/*
 	写入简要流程：
@@ -28,6 +30,9 @@ func TestLevelDb(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := db.Put(key2, value2, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	/*
 	读简要流程：
@@ -39,5 +44,5 @@ func TestLevelDb(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assert.Equal(t,value1, val)
+	assert.Equal(t, value1, val)
 }

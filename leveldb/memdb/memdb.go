@@ -178,13 +178,16 @@ const (
 	nNext
 )
 
+// 跳跃表实现：https://cloud.tencent.com/developer/article/1602204
 // DB is an in-memory key/value database.
 type DB struct {
+	// 比较器
 	cmp comparer.BasicComparer
 	rnd *rand.Rand
 
 	mu     sync.RWMutex
 	kvData []byte
+
 	// Node data:
 	// [0]         : KV offset
 	// [1]         : Key length
