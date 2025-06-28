@@ -107,12 +107,13 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 	}
 
 	// Walk tables level-by-level.
-	// 逐层查找
+	// 自定向下，逐层查找
 	for level, tables := range v.levels {
 		if len(tables) == 0 {
 			continue
 		}
 
+		// 对于level 0，key并没有经过合并，key可能重复，则需要查找所有的文件
 		if level == 0 {
 			// Level-0 files may overlap each other. Find all files that
 			// overlap ukey.
@@ -124,6 +125,9 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 				}
 			}
 		} else {
+			/*
+				对于其他level；则可以通过【二分查找】定位到sst
+			*/
 			if i := tables.searchMax(v.s.icmp, ikey); i < len(tables) {
 				t := tables[i]
 				if v.s.icmp.uCompare(ukey, t.imin.ukey()) >= 0 {
@@ -155,7 +159,7 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		// Level-0.
 		zfound bool
 		zseq   uint64
-		zkt    keyType
+		zkt    keyType // key类型
 		zval   []byte
 	)
 
@@ -163,78 +167,95 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 
 	// Since entries never hop across level, finding key/value
 	// in smaller level make later levels irrelevant.
-	v.walkOverlapping(aux, ikey, func(level int, t *tFile) bool {
-		if sampleSeeks && level >= 0 && !tseek {
-			if tset == nil {
-				tset = &tSet{level, t}
-			} else {
-				tseek = true
-			}
-		}
+	v.walkOverlapping(
+		aux,
+		ikey,
+		/* 闭包；从sst文件中查找key
+		level： 哪一层
+		t: 该层中的sst文件
 
-		var (
-			fikey, fval []byte
-			ferr        error
-		)
-		if noValue {
-			fikey, ferr = v.s.tops.findKey(t, ikey, ro)
-		} else {
-			fikey, fval, ferr = v.s.tops.find(t, ikey, ro)
-		}
-
-		switch ferr {
-		case nil:
-		case ErrNotFound:
-			return true
-		default:
-			err = ferr
-			return false
-		}
-
-		if fukey, fseq, fkt, fkerr := parseInternalKey(fikey); fkerr == nil {
-			if v.s.icmp.uCompare(ukey, fukey) == 0 {
-				// Level <= 0 may overlaps each-other.
-				if level <= 0 {
-					if fseq >= zseq {
-						zfound = true
-						zseq = fseq
-						zkt = fkt
-						zval = fval
-					}
+		bool: 返回值为false，walkOverlapping停止循环
+		*/
+		func(level int, t *tFile) bool {
+			if sampleSeeks && level >= 0 && !tseek {
+				if tset == nil {
+					tset = &tSet{level, t}
 				} else {
-					switch fkt {
-					case keyTypeVal:
-						value = fval
-						err = nil
-					case keyTypeDel:
-					default:
-						panic("leveldb: invalid internalKey type")
-					}
-					return false
+					tseek = true
 				}
 			}
-		} else {
-			err = fkerr
-			return false
-		}
 
-		return true
-	}, func(level int) bool {
-		if zfound {
-			switch zkt {
-			case keyTypeVal:
-				value = zval
-				err = nil
-			case keyTypeDel:
-			default:
-				panic("leveldb: invalid internalKey type")
+			var (
+				fikey, fval []byte
+				ferr        error
+			)
+			// todo
+			if noValue {
+				fikey, ferr = v.s.tops.findKey(t, ikey, ro)
+			} else {
+				fikey, fval, ferr = v.s.tops.find(t, ikey, ro)
 			}
-			return false
-		}
 
-		return true
-	})
+			switch ferr {
+			case nil:
+			case ErrNotFound:
+				return true
+			default:
+				err = ferr
+				return false
+			}
 
+			if fukey, fseq, fkt, fkerr := parseInternalKey(fikey); fkerr == nil {
+				if v.s.icmp.uCompare(ukey, fukey) == 0 {
+					// Level <= 0 会有重复key，取seq最大者
+					if level <= 0 {
+						if fseq >= zseq {
+							zfound = true
+							zseq = fseq
+							zkt = fkt
+							zval = fval
+						}
+					} else {
+						switch fkt {
+						case keyTypeVal:
+							value = fval
+							err = nil
+						case keyTypeDel:
+						default:
+							panic("leveldb: invalid internalKey type")
+						}
+						return false
+					}
+				}
+			} else {
+				err = fkerr
+				return false
+			}
+
+			return true
+		},
+
+		/*
+			闭包； 对于level 0的key类型做校验
+			返回值为false，walkOverlapping停止循环
+		*/
+		func(level int) bool {
+			if zfound {
+				switch zkt {
+				case keyTypeVal:
+					value = zval
+					err = nil
+				case keyTypeDel:
+				default:
+					panic("leveldb: invalid internalKey type")
+				}
+				return false
+			}
+
+			return true
+		})
+
+	// todo
 	if tseek && tset.table.consumeSeek() <= 0 {
 		tcomp = atomic.CompareAndSwapPointer(&v.cSeek, nil, unsafe.Pointer(tset))
 	}
