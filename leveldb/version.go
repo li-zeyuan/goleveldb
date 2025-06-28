@@ -91,6 +91,7 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 	ukey := ikey.ukey()
 
 	// Aux level.
+	// 查找临时level
 	if aux != nil {
 		for _, t := range aux {
 			if t.overlaps(v.s.icmp, ukey, ukey) {
@@ -106,6 +107,7 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 	}
 
 	// Walk tables level-by-level.
+	// 逐层查找
 	for level, tables := range v.levels {
 		if len(tables) == 0 {
 			continue
