@@ -402,27 +402,38 @@ func (t *tOps) createFrom(src iterator.Iterator) (f *tFile, n int, err error) {
 // Opens table. It returns a cache handle, which should
 // be released after use.
 func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
-	ch = t.fileCache.Get(0, uint64(f.fd.Num), func() (size int, value cache.Value) {
-		var r storage.Reader
-		r, err = t.s.stor.Open(f.fd)
-		if err != nil {
-			return 0, nil
-		}
+	ch = t.fileCache.Get(
+		0,
+		uint64(f.fd.Num),
+		/*
+		按需打开磁盘文件
+		设置缓存，避免重复打开磁盘文件
+		*/
+		func() (size int, value cache.Value) {
+			// 从磁盘上打开文件
+			var r storage.Reader
+			r, err = t.s.stor.Open(f.fd)
+			if err != nil {
+				return 0, nil
+			}
 
-		var blockCache *cache.NamespaceGetter
-		if t.blockCache != nil {
-			blockCache = &cache.NamespaceGetter{Cache: t.blockCache, NS: uint64(f.fd.Num)}
-		}
+			// 创建block缓存
+			var blockCache *cache.NamespaceGetter
+			if t.blockCache != nil {
+				blockCache = &cache.NamespaceGetter{Cache: t.blockCache, NS: uint64(f.fd.Num)}
+			}
 
-		var tr *table.Reader
-		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options)
-		if err != nil {
-			_ = r.Close()
-			return 0, nil
-		}
-		return 1, tr
+			// 创建table.Reader
+			var tr *table.Reader
+			tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options)
+			if err != nil {
+				_ = r.Close()
+				return 0, nil
+			}
+			return 1, tr
 
-	})
+		},
+	)
 	if ch == nil && err == nil {
 		err = ErrClosed
 	}
